@@ -19,6 +19,7 @@ DO_EXPRESS_CHECKOUT = 'DoExpressCheckoutPayment'
 DO_CAPTURE = 'DoCapture'
 DO_VOID = 'DoVoid'
 REFUND_TRANSACTION = 'RefundTransaction'
+CREATE_RECURRING_PAYMENT_PROFILE = 'CreateRecurringPaymentsProfile'
 
 SALE, AUTHORIZATION, ORDER = 'Sale', 'Authorization', 'Order'
 
@@ -106,7 +107,8 @@ def _fetch_response(method, extra_params):
 
 def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_url=None,
             action=SALE, user=None, user_address=None, shipping_method=None,
-            shipping_address=None):
+            shipping_address=None, billing_type=None,
+            billing_description=None):
     """
     Register the transaction with PayPal to get a token which we use in the
     redirect URL.  This is the 'SetExpressCheckout' from their documentation.
@@ -129,6 +131,10 @@ def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_u
         'CANCELURL': cancel_url,
         'PAYMENTREQUEST_0_PAYMENTACTION': action,
     }
+
+    if billing_type:
+        params['L_BILLINGTYPE0'] = billing_type
+        params['L_BILLINGAGREEMENTDESCRIPTION0'] = billing_description
 
 
     # Add item details
@@ -383,3 +389,32 @@ def refund_txn(txn_id, is_partial=False, amount=None, currency=None):
         params['AMT'] = amount
         params['CURRENCYCODE'] = currency
     return _fetch_response(REFUND_TRANSACTION, params)
+
+
+PERIOD_DAY = 'Day'
+PERIOD_WEEK = 'Week'
+PERIOD_MONTH = 'Month'
+PERIOD_SEMI_MONTH = 'SemiMonth'
+PERIOD_YEAR = 'Year'
+
+PERIODS = [
+    PERIOD_DAY,
+    PERIOD_WEEK,
+    PERIOD_MONTH,
+    PERIOD_SEMI_MONTH,
+    PERIOD_YEAR
+]
+def create_recurring_payment(payer_id, token, amount, currency, start_date,
+                                description, billing_period,
+                                billing_frequency):
+    if billing_period not in PERIODS:
+        raise ValueError("%s is not a valid billing period" % billing_period)
+
+    params = {
+        'PAYERID': payer_id,
+        'TOKEN': token,
+        'PROFILESTARTDATE': '',
+        'CURRENCYCODE': currency,
+        'AMT': amount,
+    }
+    return _fetch_response(CREATE_RECURRING_PAYMENT_PROFILE, params)
