@@ -10,6 +10,7 @@ from django.template.defaultfilters import truncatewords
 from paypal.express import models
 from paypal import gateway
 from paypal import exceptions
+from paypal.utils import get_recurring_profile
 
 
 # PayPal methods
@@ -89,6 +90,10 @@ def _fetch_response(method, extra_params):
             txn.token = params['TOKEN']
             txn.amount = D(pairs['PAYMENTINFO_0_AMT'])
             txn.currency = pairs['PAYMENTINFO_0_CURRENCYCODE']
+        elif method == CREATE_RECURRING_PAYMENT_PROFILE:
+            txn.token = params['TOKEN']
+            txn.amount = D(params['AMT'])
+            txn.currency = params['CURRENCYCODE']
     else:
         # There can be more than one error, each with its own number.
         if 'L_ERRORCODE0' in pairs:
@@ -107,8 +112,7 @@ def _fetch_response(method, extra_params):
 
 def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_url=None,
             action=SALE, user=None, user_address=None, shipping_method=None,
-            shipping_address=None, billing_type=None,
-            billing_description=None):
+            shipping_address=None):
     """
     Register the transaction with PayPal to get a token which we use in the
     redirect URL.  This is the 'SetExpressCheckout' from their documentation.
@@ -132,78 +136,134 @@ def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_u
         'PAYMENTREQUEST_0_PAYMENTACTION': action,
     }
 
-    if billing_type:
-        params['L_BILLINGTYPE0'] = billing_type
-        params['L_BILLINGAGREEMENTDESCRIPTION0'] = billing_description
-
-
     # Add item details
     index = 0
+    is_recurring = False
     for index, line in enumerate(basket.all_lines()):
+
+
         product = line.product
-        params['L_PAYMENTREQUEST_0_NAME%d' % index] = product.get_title()
-        params['L_PAYMENTREQUEST_0_NUMBER%d' % index] = (product.upc if
-                                                         product.upc else '')
-        desc = ''
-        if product.description:
-            desc = truncatewords(product.description, 12)
-        params['L_PAYMENTREQUEST_0_DESC%d' % index] = desc
-        # Note, we don't include discounts here - they are handled as separate
-        # lines - see below
-        params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
-            line.unit_price_incl_tax)
-        params['L_PAYMENTREQUEST_0_QTY%d' % index] = line.quantity
 
-    # If the order has discounts associated with it, the way PayPal suggests
-    # using the API is to add a separate item for the discount with the value
-    # as a negative price.  See "Integrating Order Details into the Express
-    # Checkout Flow"
-    # https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_api_ECCustomizing
+        recurring_profile = get_recurring_profile(product)
+        if recurring_profile is not None:
+            is_recurring = True
 
-    # Iterate over the 3 types of discount that can occur
-    for discount in basket.offer_discounts:
-        index += 1
-        name = _("Special Offer: %s") % discount['name']
-        params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
-        params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
-        params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
-            -discount['discount'])
-        params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
-    for discount in basket.voucher_discounts:
-        index += 1
-        name = "%s (%s)" % (discount['voucher'].name,
-                            discount['voucher'].code)
-        params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
-        params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
-        params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
-            -discount['discount'])
-        params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
-    for discount in basket.shipping_discounts:
-        index += 1
-        name = _("Shipping Offer: %s") % discount['name']
-        params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
-        params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
-        params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
-            -discount['discount'])
-        params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
+            if is_recurring and basket.num_items > 1:
+                    raise exceptions.PayPalError('Only a single recurring payment is supported')
 
-    # We include tax in the prices rather than separately as that's how it's
-    # done on most British/Australian sites.  Will need to refactor in the
-    # future no doubt.
+            params['L_BILLINGTYPE0'] = 'RecurringPayments'
+            params['L_BILLINGAGREEMENTDESCRIPTION0'] = recurring_profile.get(
+                'billing_description'
+            )
 
-    # Note that the following constraint must be met
-    #
-    # PAYMENTREQUEST_0_AMT = (
-    #     PAYMENTREQUEST_0_ITEMAMT +
-    #     PAYMENTREQUEST_0_TAXAMT +
-    #     PAYMENTREQUEST_0_SHIPPINGAMT +
-    #     PAYMENTREQUEST_0_HANDLINGAMT)
-    #
-    # Hence, if tax is to be shown then it has to be aggregated up to the order
-    # level.
-    params['PAYMENTREQUEST_0_ITEMAMT'] = _format_currency(
-        basket.total_incl_tax)
-    params['PAYMENTREQUEST_0_TAXAMT'] = _format_currency(D('0.00'))
+        else:
+
+            params['L_PAYMENTREQUEST_0_NAME%d' % index] = product.get_title()
+            params['L_PAYMENTREQUEST_0_NUMBER%d' % index] = (product.upc if
+                                                             product.upc else '')
+
+            desc = ''
+            if product.description:
+                desc = truncatewords(product.description, 12)
+            params['L_PAYMENTREQUEST_0_DESC%d' % index] = desc
+            # Note, we don't include discounts here - they are handled as separate
+            # lines - see below
+            params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
+                line.unit_price_incl_tax)
+            params['L_PAYMENTREQUEST_0_QTY%d' % index] = line.quantity
+
+    if not is_recurring:
+        # If the order has discounts associated with it, the way PayPal suggests
+        # using the API is to add a separate item for the discount with the value
+        # as a negative price.  See "Integrating Order Details into the Express
+        # Checkout Flow"
+        # https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_api_ECCustomizing
+
+        # Iterate over the 3 types of discount that can occur
+        for discount in basket.offer_discounts:
+            index += 1
+            name = _("Special Offer: %s") % discount['name']
+            params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
+            params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
+            params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
+                -discount['discount'])
+            params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
+        for discount in basket.voucher_discounts:
+            index += 1
+            name = "%s (%s)" % (discount['voucher'].name,
+                                discount['voucher'].code)
+            params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
+            params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
+            params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
+                -discount['discount'])
+            params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
+        for discount in basket.shipping_discounts:
+            index += 1
+            name = _("Shipping Offer: %s") % discount['name']
+            params['L_PAYMENTREQUEST_0_NAME%d' % index] = name
+            params['L_PAYMENTREQUEST_0_DESC%d' % index] = truncatewords(name, 12)
+            params['L_PAYMENTREQUEST_0_AMT%d' % index] = _format_currency(
+                -discount['discount'])
+            params['L_PAYMENTREQUEST_0_QTY%d' % index] = 1
+
+        # We include tax in the prices rather than separately as that's how it's
+        # done on most British/Australian sites.  Will need to refactor in the
+        # future no doubt.
+
+        # Note that the following constraint must be met
+        #
+        # PAYMENTREQUEST_0_AMT = (
+        #     PAYMENTREQUEST_0_ITEMAMT +
+        #     PAYMENTREQUEST_0_TAXAMT +
+        #     PAYMENTREQUEST_0_SHIPPINGAMT +
+        #     PAYMENTREQUEST_0_HANDLINGAMT)
+        #
+        # Hence, if tax is to be shown then it has to be aggregated up to the order
+        # level.
+        params['PAYMENTREQUEST_0_ITEMAMT'] = _format_currency(
+            basket.total_incl_tax)
+        params['PAYMENTREQUEST_0_TAXAMT'] = _format_currency(D('0.00'))
+
+        # Shipping charges
+        params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(D('0.00'))
+        max_charge = D('0.00')
+        for index, method in enumerate(shipping_methods):
+            is_default = index == 0
+            params['L_SHIPPINGOPTIONISDEFAULT%d' % index] = 'true' if is_default else 'false'
+            charge = method.basket_charge_incl_tax()
+            if charge > max_charge:
+                max_charge = charge
+            if is_default:
+                params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(charge)
+                params['PAYMENTREQUEST_0_AMT'] += charge
+            params['L_SHIPPINGOPTIONNAME%d' % index] = unicode(method.name)
+            params['L_SHIPPINGOPTIONAMOUNT%d' % index] = _format_currency(charge)
+
+        # Set shipping charge explicitly if it has been passed
+        if shipping_method:
+            max_charge = charge = shipping_method.basket_charge_incl_tax()
+            params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(charge)
+            params['PAYMENTREQUEST_0_AMT'] += charge
+
+        # Both the old version (MAXAMT) and the new version (PAYMENT...) are needed
+        # here - think it's a problem with the API.
+        params['PAYMENTREQUEST_0_MAXAMT'] = _format_currency(amount + max_charge)
+        params['MAXAMT'] = _format_currency(amount + max_charge)
+
+        # Handling set to zero for now - I've never worked on a site that needed a
+        # handling charge.
+        params['PAYMENTREQUEST_0_HANDLINGAMT'] = _format_currency(D('0.00'))
+
+        # Ensure that the total is formatted correctly.
+        params['PAYMENTREQUEST_0_AMT'] = _format_currency(
+            params['PAYMENTREQUEST_0_AMT'])
+
+        # Instant update callback information
+        if update_url:
+            params['CALLBACK'] = update_url
+            params['CALLBACKTIMEOUT'] = getattr(
+                settings, 'PAYPAL_CALLBACK_TIMEOUT', 3)
+
 
     # Customer services number
     customer_service_num = getattr(
@@ -243,11 +303,7 @@ def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_u
     if confirm_shipping_addr:
         params['REQCONFIRMSHIPPING'] = 1
 
-    # Instant update callback information
-    if update_url:
-        params['CALLBACK'] = update_url
-        params['CALLBACKTIMEOUT'] = getattr(
-            settings, 'PAYPAL_CALLBACK_TIMEOUT', 3)
+
 
     # Contact details and address details - we provide these as it would make
     # the PayPal registration process smoother is the user doesn't already have
@@ -283,39 +339,7 @@ def set_txn(basket, shipping_methods, currency, return_url, cancel_url, update_u
     if allow_note:
         params['ALLOWNOTE'] = 1
 
-    # Shipping charges
-    params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(D('0.00'))
-    max_charge = D('0.00')
-    for index, method in enumerate(shipping_methods):
-        is_default = index == 0
-        params['L_SHIPPINGOPTIONISDEFAULT%d' % index] = 'true' if is_default else 'false'
-        charge = method.basket_charge_incl_tax()
-        if charge > max_charge:
-            max_charge = charge
-        if is_default:
-            params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(charge)
-            params['PAYMENTREQUEST_0_AMT'] += charge
-        params['L_SHIPPINGOPTIONNAME%d' % index] = unicode(method.name)
-        params['L_SHIPPINGOPTIONAMOUNT%d' % index] = _format_currency(charge)
 
-    # Set shipping charge explicitly if it has been passed
-    if shipping_method:
-        max_charge = charge = shipping_method.basket_charge_incl_tax()
-        params['PAYMENTREQUEST_0_SHIPPINGAMT'] = _format_currency(charge)
-        params['PAYMENTREQUEST_0_AMT'] += charge
-
-    # Both the old version (MAXAMT) and the new version (PAYMENT...) are needed
-    # here - think it's a problem with the API.
-    params['PAYMENTREQUEST_0_MAXAMT'] = _format_currency(amount + max_charge)
-    params['MAXAMT'] = _format_currency(amount + max_charge)
-
-    # Handling set to zero for now - I've never worked on a site that needed a
-    # handling charge.
-    params['PAYMENTREQUEST_0_HANDLINGAMT'] = _format_currency(D('0.00'))
-
-    # Ensure that the total is formatted correctly.
-    params['PAYMENTREQUEST_0_AMT'] = _format_currency(
-        params['PAYMENTREQUEST_0_AMT'])
 
     txn = _fetch_response(SET_EXPRESS_CHECKOUT, params)
 
@@ -404,7 +428,10 @@ PERIODS = [
     PERIOD_SEMI_MONTH,
     PERIOD_YEAR
 ]
-def create_recurring_payment(payer_id, token, amount, currency, start_date,
+
+AUTOBILL_YES = 'AddToNextBilling'
+AUTOBILL_NO = 'NoAutoBill'
+def do_recurring_payment(payer_id, token, amount, currency, start_date,
                                 description, billing_period,
                                 billing_frequency):
     if billing_period not in PERIODS:
@@ -413,8 +440,17 @@ def create_recurring_payment(payer_id, token, amount, currency, start_date,
     params = {
         'PAYERID': payer_id,
         'TOKEN': token,
-        'PROFILESTARTDATE': '',
+        'PROFILESTARTDATE': start_date,
         'CURRENCYCODE': currency,
         'AMT': amount,
+        'DESC': description,
+        'BILLINGPERIOD': billing_period,
+        'BILLINGFREQUENCY': billing_frequency,
+        'MAXFAILEDPAYMENTS': getattr(settings, 'PAYPAL_RECURRING_MAX_FAIL', 0)
     }
+
+    params['AUTOBILLOUTAMT'] = AUTOBILL_NO
+    if getattr(settings, 'PAYPAL_RECURRING_AUTO_BILL', True):
+        params['AUTOBILLOUTAMT'] = AUTOBILL_YES
+
     return _fetch_response(CREATE_RECURRING_PAYMENT_PROFILE, params)

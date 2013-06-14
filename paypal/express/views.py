@@ -11,6 +11,7 @@ from django.core.urlresolvers import reverse
 from django.http import HttpResponseRedirect
 from django.db.models import get_model
 from django.utils.translation import ugettext_lazy as _
+from django.utils import timezone
 
 from oscar.apps.checkout.views import PaymentDetailsView, CheckoutSessionMixin
 from oscar.apps.payment.exceptions import PaymentError, UnableToTakePayment
@@ -18,8 +19,10 @@ from oscar.apps.payment.models import SourceType, Source
 from oscar.core.loading import get_class
 from oscar.apps.shipping.methods import FixedPrice
 
-from paypal.express.facade import get_paypal_url, fetch_transaction_details, confirm_transaction
+from paypal.express.facade import (get_paypal_url, fetch_transaction_details,
+    confirm_transaction, create_recurring_payment)
 from paypal.exceptions import PayPalError
+from paypal.utils import get_recurring_profile
 
 ShippingAddress = get_model('order', 'ShippingAddress')
 Country = get_model('address', 'Country')
@@ -200,7 +203,33 @@ class SuccessResponseView(PaymentDetailsView):
             raise PaymentError("Unable to determine PayPal transaction details")
 
         try:
-            txn = confirm_transaction(payer_id, token, amount=self.txn.amount,
+            if int(self.txn.value('BILLINGAGREEMENTACCEPTEDSTATUS')) == 1:
+                utc_today = timezone.now().utcnow().date()
+                start_date = utc_today.strftime('%Y-%m-%dT%H:%M:%SZ')
+                desc = ''
+                billing_period = None
+                billing_frequency = None
+                for index, line in enumerate(self.request.basket.all_lines()):
+                    product = line.product
+                    recurring_profile = get_recurring_profile(product)
+                    if recurring_profile is not None:
+                        billing_period = recurring_profile.get('billing_period')
+                        billing_frequency = recurring_profile.get('billing_frequency')
+                        desc = recurring_profile.get('billing_description')
+
+                txn = create_recurring_payment(
+                    payer_id,
+                    token,
+                    self.txn.amount,
+                    self.txn.currency,
+                    start_date,
+                    desc,
+                    billing_period,
+                    billing_frequency
+                )
+            else:
+                txn = confirm_transaction(payer_id, token,
+                                      amount=self.txn.amount,
                                       currency=self.txn.currency)
         except PayPalError:
             raise UnableToTakePayment()
