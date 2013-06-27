@@ -23,6 +23,8 @@ from paypal.express.facade import (get_paypal_url, fetch_transaction_details,
     confirm_transaction, create_recurring_payment)
 from paypal.exceptions import PayPalError
 from paypal.utils import get_recurring_profile
+from paypal.express.models import RecurringProfile
+
 
 ShippingAddress = get_model('order', 'ShippingAddress')
 Country = get_model('address', 'Country')
@@ -226,6 +228,11 @@ class SuccessResponseView(PaymentDetailsView):
                     desc,
                     billing_period,
                     billing_frequency
+                )
+                RecurringProfile.objects.create(
+                    profile_id=txn.value('PROFILEID'),
+                    profile_status=txn.value('PROFILESTATUS'),
+                    order_number=order_number
                 )
             else:
                 txn = confirm_transaction(payer_id, token,
