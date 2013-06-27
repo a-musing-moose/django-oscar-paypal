@@ -43,7 +43,7 @@ class ExpressTransaction(base.ResponseModel):
             self.method, self.token)
 
 
-class RecurringProfile(models.models):
+class RecurringProfile(models.Model):
 
     profile_id = models.CharField(_("Profile Id"), max_length=64, unique=True)
     profile_status = models.CharField(_("Profile Status"), max_length=64,
