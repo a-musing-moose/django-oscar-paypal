@@ -22,5 +22,5 @@ class ExpressTransactionAdmin(admin.ModelAdmin):
         'request',
         'response']
 
-
 admin.site.register(models.ExpressTransaction, ExpressTransactionAdmin)
+admin.site.register(models.RecurringProfile)
