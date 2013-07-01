@@ -225,7 +225,7 @@ class SuccessResponseView(PaymentDetailsView):
                         desc = recurring_profile.get('billing_description')
                         trial_period = recurring_profile.get('trial_period')
                         trial_frequency = recurring_profile.get('trial_frequency')
-                        trial_amount = recurring_profile.get('trail_amount')
+                        trial_amount = recurring_profile.get('trial_amount')
                         trial_max_cycles =recurring_profile.get('trial_max_cycles')
 
                 txn = create_recurring_payment(
