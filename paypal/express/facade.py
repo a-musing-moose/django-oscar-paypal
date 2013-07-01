@@ -112,5 +112,6 @@ def create_recurring_payment(payer_id, token, amount, currency, start_date,
                              trial_period=None, trial_frequency=None,
                              trial_amount=None, trial_max_cycles=None):
     return do_recurring_payment(payer_id, token, amount, currency, start_date,
-                                description, billing_period,
-                                billing_frequency)
+                                description, billing_period, billing_frequency,
+                                trial_period, trial_frequency,
+                                trial_amount, trial_max_cycles)
