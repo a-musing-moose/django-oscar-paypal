@@ -433,8 +433,8 @@ AUTOBILL_YES = 'AddToNextBilling'
 AUTOBILL_NO = 'NoAutoBill'
 def do_recurring_payment(payer_id, token, amount, currency, start_date,
                          description, billing_period, billing_frequency,
-                         trail_period=None, trail_frequency=None,
-                         trail_amount=None):
+                         trial_period=None, trial_frequency=None,
+                         trial_amount=None, trial_max_cycles=None):
     if billing_period not in PERIODS:
         raise ValueError("%s is not a valid billing period" % billing_period)
 
@@ -454,9 +454,11 @@ def do_recurring_payment(payer_id, token, amount, currency, start_date,
     if getattr(settings, 'PAYPAL_RECURRING_AUTO_BILL', True):
         params['AUTOBILLOUTAMT'] = AUTOBILL_YES
 
-    if trail_amount and trail_frequency and trail_amount:
-        params['TRIALAMT'] = trail_amount
-        params['TRIALBILLINGPERIOD'] = trail_period
-        params['TRIALBILLINGFREQUENCY'] = trail_frequency
+    if trial_amount and trial_frequency and trial_amount:
+        params['TRIALAMT'] = trial_period
+        params['TRIALBILLINGPERIOD'] = trial_period
+        params['TRIALBILLINGFREQUENCY'] = trial_frequency
+        if trial_max_cycles:
+            params['TRIALTOTALBILLINGCYCLES'] = trial_max_cycles
 
     return _fetch_response(CREATE_RECURRING_PAYMENT_PROFILE, params)

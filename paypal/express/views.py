@@ -223,9 +223,10 @@ class SuccessResponseView(PaymentDetailsView):
                         billing_period = recurring_profile.get('billing_period')
                         billing_frequency = recurring_profile.get('billing_frequency')
                         desc = recurring_profile.get('billing_description')
-                        trail_frequency = recurring_profile.get('trail_frequency')
-                        trail_period = recurring_profile.get('trail_period')
-                        trail_amount = recurring_profile.get('trail_amount')
+                        trial_period = recurring_profile.get('trial_period')
+                        trial_frequency = recurring_profile.get('trial_frequency')
+                        trial_amount = recurring_profile.get('trail_amount')
+                        trial_max_cycles =recurring_profile.get('trial_max_cycles')
 
                 txn = create_recurring_payment(
                     payer_id,
@@ -236,9 +237,10 @@ class SuccessResponseView(PaymentDetailsView):
                     desc,
                     billing_period,
                     billing_frequency,
-                    trail_period=trail_period,
-                    trail_frequency=trail_frequency,
-                    trail_amount=trail_amount
+                    trial_period=trial_period,
+                    trial_frequency=trial_frequency,
+                    trial_amount=trial_amount,
+                    trial_max_cycles=trial_max_cycles
 
                 )
                 RecurringProfile.objects.create(
