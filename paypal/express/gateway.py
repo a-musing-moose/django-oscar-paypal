@@ -454,8 +454,10 @@ def do_recurring_payment(payer_id, token, amount, currency, start_date,
     if getattr(settings, 'PAYPAL_RECURRING_AUTO_BILL', True):
         params['AUTOBILLOUTAMT'] = AUTOBILL_YES
 
-    if trial_amount and trial_frequency and trial_amount:
-        params['TRIALAMT'] = trial_period
+    if (trial_amount is not None and
+        trial_frequency is not None and
+        trial_period is not None):
+        params['TRIALAMT'] = trial_amount
         params['TRIALBILLINGPERIOD'] = trial_period
         params['TRIALBILLINGFREQUENCY'] = trial_frequency
         if trial_max_cycles:
