@@ -54,3 +54,6 @@ class RecurringProfile(models.Model):
     class Meta:
         app_label = 'paypal'
         ordering = ('-date_created',)
+
+    def __unicode__(self):
+        return self.profile_id
