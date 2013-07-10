@@ -7,13 +7,13 @@ from django.utils.translation import ugettext_lazy as _
 class PaymentNotification(models.Model):
     
     raw_request = models.TextField(max_length=512)
-    txn_id = models.CharField(_('Transaction Id'), max_length=128, unique=True)
-    txn_type = models.CharField(
-        _('Transaction type'),
+    txn_type = models.CharField(_('Transaction type'), max_length=128)
+    txn_id = models.CharField(
+        _('Transaction Id'),
         max_length=128,
         blank=True,
         null=True
-    )
+    ) # For subscriptions based notifications this is blank
     date_created = models.DateTimeField(auto_now_add=True)
 
     def value(self, key):

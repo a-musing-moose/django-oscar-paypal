@@ -15,29 +15,27 @@ class IPNHandlerView(View):
 
 	def post(self, request, *args, **kwargs):
 		txn_id = self.request.POST.get('txn_id')
-		if not txn_id:
-			return HttpResponse("Invalid parameters")
 
-		if self.already_exists():
+		if txn_id and self.already_exists(txn_id):
+			# We already have it
 			return HttpResponse("Success")
 
 		if self.is_verified():
-			ipn = self.create_ipn()
+			ipn = self.create_ipn(txn_id)
 			ipn_received.send(sender=self, instance=ipn)
 			return HttpResponse("Success")
 
 		return HttpResponse("Unable to Verify")
 
 	@transaction.commit_on_success
-	def create_ipn(self):
+	def create_ipn(self, txn_id):
 		return PaymentNotification.object.create(
 			raw_request=self.request.raw_post_data,
-			txn_id=self.request.POST.get('txn_id'),
+			txn_id=txn_id,
 			txn_type=self.request.POST.get('txn_type')
 		)
 
-	def already_exists(self):
-		txn_id = self.request.POST.get('txn_id')
+	def already_exists(self, txn_id):
 		try:
 			PaymentNotification.objects.get(txn_id=txn_id)
 		except PaymentNotification.DoesNotExist:
