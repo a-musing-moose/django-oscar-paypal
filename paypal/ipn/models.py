@@ -27,7 +27,7 @@ class PaymentNotification(models.Model):
         return urlparse.parse_qs(self.raw_response)
 
     def __unicode__(self):
-        return self.txn_id
+        return u'%d: %s' % (self.id, self.txn_type)
 
     class Meta:
         ordering = ('-date_created',)
