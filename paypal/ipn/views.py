@@ -29,7 +29,7 @@ class IPNHandlerView(View):
 
 	@transaction.commit_on_success
 	def create_ipn(self, txn_id):
-		return PaymentNotification.object.create(
+		return PaymentNotification.objects.create(
 			raw_request=self.request.raw_post_data,
 			txn_id=txn_id,
 			txn_type=self.request.POST.get('txn_type')
